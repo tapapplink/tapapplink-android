@@ -52,9 +52,9 @@ afterEvaluate {
             }
           }
           scm {
-            url.set("https://github.com/KennyYe/tapapplink-android")
-            connection.set("scm:git:git://github.com/KennyYe/tapapplink-android.git")
-            developerConnection.set("scm:git:ssh://github.com/KennyYe/tapapplink-android.git")
+            url.set("https://github.com/tapapplink/tapapplink-android")
+            connection.set("scm:git:git://github.com/tapapplink/tapapplink-android.git")
+            developerConnection.set("scm:git:ssh://github.com/tapapplink/tapapplink-android.git")
           }
         }
       }

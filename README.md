@@ -19,7 +19,7 @@ dependencyResolutionManagement {
 Then in the app module:
 
 ```kotlin
-implementation("com.github.KennyYe:tapapplink-android:0.1.0")
+implementation("com.github.tapapplink:tapapplink-android:0.1.0")
 ```
 
 `./gradlew` needs JDK 17 or 21. JDK 25 is not supported by this Android Gradle Plugin.
