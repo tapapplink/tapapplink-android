@@ -1,17 +1,25 @@
 # Tap App Link Android SDK
 
-Kotlin library for Tap App Link attribution.
+Kotlin library for creator install attribution. When the user arrives from Google Play, pass the Play Install Referrer into `trackInstall` for a deterministic match.
 
 ## Install
 
-Until Maven Central is live, publish locally then depend on it:
-
-```bash
-./gradlew publishToMavenLocal
-```
+Add JitPack to your project `settings.gradle.kts`:
 
 ```kotlin
-implementation("com.tapapplink:sdk:0.1.0")
+dependencyResolutionManagement {
+  repositories {
+    google()
+    mavenCentral()
+    maven { url = uri("https://jitpack.io") }
+  }
+}
+```
+
+Then in the app module:
+
+```kotlin
+implementation("com.github.KennyYe:tapapplink-android:0.1.0")
 ```
 
 `./gradlew` needs JDK 17 or 21. JDK 25 is not supported by this Android Gradle Plugin.
@@ -27,10 +35,17 @@ TapAppLink.configure(
 )
 
 TapAppLink.trackInstall(context) { /* install result */ }
-TapAppLink.setAppUserId(Purchases.sharedInstance.appUserID) { /* identify result */ }
+// Or pass Play Install Referrer when you collect it:
+TapAppLink.trackInstall(context, installReferrer) { }
+
+TapAppLink.setAppUserId(Purchases.sharedInstance.appUserID) { }
+val offer = TapAppLink.getOffer()
+TapAppLink.applyCode("SARAH10") { }
 ```
 
-Pass Play Install Referrer into `trackInstall(context, installReferrer)` when you collect it.
+`trackInstall()` is safe on every launch — it only records once per install. Call `resetForTesting()` in debug builds before repeating a match test on the same install.
+
+Purchases are attributed through billing webhooks. Leave out a client `trackPurchase` call.
 
 ## License
 

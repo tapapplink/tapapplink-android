@@ -100,6 +100,12 @@ object TapAppLink {
   fun getOffer(): TapAppLinkOffer? = lastOffer
 
   @JvmStatic
+  fun getAttributionId(): String? = lastAttributionId
+
+  @JvmStatic
+  fun getAppUserId(): String? = lastAppUserId
+
+  @JvmStatic
   fun linkRevenueCatUser(appUserId: String, callback: (JSONObject) -> Unit) =
     setAppUserId(appUserId, callback)
 
