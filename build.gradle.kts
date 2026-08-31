@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.tapapplink"
-version = "0.1.0"
+version = "0.1.1"
 
 android {
   namespace = "com.tapapplink.sdk"
@@ -34,7 +34,7 @@ afterEvaluate {
         from(components["release"])
         groupId = "com.tapapplink"
         artifactId = "sdk"
-        version = "0.1.0"
+        version = "0.1.1"
         pom {
           name.set("Tap App Link Android SDK")
           description.set("Tap App Link attribution SDK for Android")

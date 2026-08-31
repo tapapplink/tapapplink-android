@@ -19,7 +19,6 @@ data class TapAppLinkConfig(
   val publicKey: String,
   val environment: TapAppLinkEnvironment,
   val ingestUrl: String? = null,
-  val debugSessionId: String? = null,
 )
 
 data class TapAppLinkOffer(
@@ -68,7 +67,6 @@ object TapAppLink {
         .put("networkContext", Locale.getDefault().country.ifEmpty { "unknown" })
         .put("firstOpenAt", isoNow())
       installReferrer?.let { body.put("installReferrer", it) }
-      cfg.debugSessionId?.let { body.put("debugSessionId", it) }
       val result = post(cfg, "/ingestInstall", body)
       tracked = true
       cacheFromResult(result)
@@ -89,7 +87,6 @@ object TapAppLink {
       val body = JSONObject().put("code", code).put("platform", "ANDROID")
       lastAppUserId?.let { body.put("appUserId", it) }
       lastAttributionId?.let { body.put("attributionId", it) }
-      cfg.debugSessionId?.let { body.put("debugSessionId", it) }
       val result = post(cfg, "/redeemCode", body)
       cacheFromResult(result)
       callback(result)
@@ -144,7 +141,6 @@ object TapAppLink {
     val cfg = requireConfig()
     val body = JSONObject().put("appUserId", appUserId)
     lastAttributionId?.let { body.put("attributionId", it) }
-    cfg.debugSessionId?.let { body.put("debugSessionId", it) }
     return post(cfg, "/ingestIdentify", body)
   }
 
