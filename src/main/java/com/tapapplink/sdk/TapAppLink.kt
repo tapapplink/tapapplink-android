@@ -24,7 +24,6 @@ data class TapAppLinkConfig(
 data class TapAppLinkOffer(
   val creatorName: String,
   val promoCode: String?,
-  val discountBps: Int,
   val billingOfferId: String?,
 )
 
@@ -132,7 +131,6 @@ object TapAppLink {
     lastOffer = TapAppLinkOffer(
       creatorName = offer.optString("creatorName"),
       promoCode = offer.optString("promoCode").takeIf { it.isNotBlank() },
-      discountBps = offer.optInt("discountBps"),
       billingOfferId = offer.optString("billingOfferId").takeIf { it.isNotBlank() },
     )
   }
