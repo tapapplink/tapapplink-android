@@ -19,8 +19,10 @@ dependencyResolutionManagement {
 Then in the app module:
 
 ```kotlin
-implementation("com.github.tapapplink:tapapplink-android:0.3.1")
+implementation("com.github.tapapplink:tapapplink-android:0.3.2")
 ```
+
+Upgrade to **0.3.2**. Do not stay on 0.3.1: that patch changed the `applyCode` callback to `Result` and broke source compatibility with 0.3.0 call sites. 0.3.2 restores the 0.3.0 signature as `@Deprecated` and keeps the typed `Result` API.
 
 `./gradlew` needs JDK 17 or 21. JDK 25 is not supported by this Android Gradle Plugin.
 
@@ -51,7 +53,7 @@ TapAppLink.setAppUserId(Purchases.sharedInstance.appUserID) { }
 Show success only on a real success result. Map each outcome to UI like this:
 
 ```kotlin
-TapAppLink.applyCode(code) { result ->
+TapAppLink.applyCode(code) { result: Result<JSONObject> ->
   result.onSuccess { body ->
     val offer = TapAppLink.getOffer()
     val offerLine = offer?.let { "${it.creatorName}'s offer" }
@@ -119,7 +121,7 @@ Purchases are attributed through billing webhooks. Leave out a client `trackPurc
 
 GitHub Actions runs on every pull request and push to `main`: Gradle assemble, unit tests, ktlint, and Android Lint.
 
-Pushing a semver tag (`0.3.1`, `v0.3.1`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
+Pushing a semver tag (`0.3.2`, `v0.3.2`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
 
 ### Local checks
 

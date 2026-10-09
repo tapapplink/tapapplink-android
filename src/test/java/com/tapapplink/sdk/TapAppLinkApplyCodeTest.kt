@@ -3,12 +3,14 @@ package com.tapapplink.sdk
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class TapAppLinkApplyCodeTest {
@@ -43,8 +45,56 @@ class TapAppLinkApplyCodeTest {
     assertFalse(body.getBoolean("alreadyAttributed"))
     assertEquals("attr_9", TapAppLink.getAttributionId())
     assertEquals("Sarah", TapAppLink.getOffer()?.creatorName)
-    assertEquals("0.3.1", seenHeaders.get()["X-TapAppLink-SDK-Version"])
+    assertEquals("0.3.2", seenHeaders.get()["X-TapAppLink-SDK-Version"])
     assertEquals(TapAppLink.SDK_VERSION, seenHeaders.get()["X-TapAppLink-SDK-Version"])
+  }
+
+  @Test
+  fun legacyApplyCodeCallSiteCompilesAndSucceeds() {
+    // 0.3.0-style call site: explicit JSONObject parameter.
+    TapAppLink.setHttpClientForTesting { _, _, _ ->
+      TapAppLinkHttpResponse(
+        200,
+        """{"attributionId":"attr_legacy","alreadyAttributed":false,"offer":{"creatorName":"Sam","promoCode":"SAM","billingOfferId":"o1"}}""",
+      )
+    }
+    val latch = CountDownLatch(1)
+    val body = AtomicReference<JSONObject>()
+    @Suppress("DEPRECATION")
+    TapAppLink.applyCode("SAM") { json: JSONObject ->
+      body.set(json)
+      latch.countDown()
+    }
+    assertTrue(latch.await(5, TimeUnit.SECONDS))
+    assertEquals("attr_legacy", body.get().getString("attributionId"))
+    assertEquals("Sam", TapAppLink.getOffer()?.creatorName)
+  }
+
+  @Test
+  fun legacyApplyCodeThrowsTypedErrorAndNeverDeliversErrorBody() {
+    TapAppLink.setHttpClientForTesting { _, _, _ ->
+      TapAppLinkHttpResponse(404, """{"error":"unknown_code"}""")
+    }
+    val latch = CountDownLatch(1)
+    val thrown = AtomicReference<Throwable>()
+    val callbackCalled = AtomicBoolean(false)
+    val previous = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { _, error ->
+      thrown.set(error)
+      latch.countDown()
+    }
+    try {
+      @Suppress("DEPRECATION")
+      TapAppLink.applyCode("NOPE") { _: JSONObject ->
+        callbackCalled.set(true)
+      }
+      assertTrue("timed out waiting for thrown redeem error", latch.await(5, TimeUnit.SECONDS))
+    } finally {
+      Thread.setDefaultUncaughtExceptionHandler(previous)
+    }
+    assertFalse(callbackCalled.get())
+    assertTrue(thrown.get() is TapAppLinkRedeemException.UnknownCode)
+    assertNull(TapAppLink.getAttributionId())
   }
 
   @Test
@@ -139,7 +189,7 @@ class TapAppLinkApplyCodeTest {
   private fun awaitApply(code: String): Result<JSONObject> {
     val latch = CountDownLatch(1)
     val held = AtomicReference<Result<JSONObject>>()
-    TapAppLink.applyCode(code) { result ->
+    TapAppLink.applyCode(code) { result: Result<JSONObject> ->
       held.set(result)
       latch.countDown()
     }

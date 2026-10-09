@@ -8,6 +8,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
+import kotlin.jvm.JvmName
 
 enum class TapAppLinkEnvironment(val value: String) {
   PRODUCTION("production"),
@@ -31,7 +32,7 @@ object TapAppLink {
   private const val TAG = "TapAppLink"
 
   /** Sent on every request as `X-TapAppLink-SDK-Version`. */
-  const val SDK_VERSION = "0.3.1"
+  const val SDK_VERSION = "0.3.2"
 
   private var config: TapAppLinkConfig? = null
   private var store: TapAppLinkStore? = null
@@ -107,6 +108,32 @@ object TapAppLink {
   }
 
   /**
+   * 0.3.0-compatible redeem callback. Prefer the [Result]-based overload.
+   *
+   * On success, [callback] receives the JSON body. On failure this overload
+   * never delivers an error body as success: it throws
+   * [TapAppLinkRedeemException] on the SDK worker thread (the 0.3.0 signature
+   * had no error callback). Migrate to the [Result] overload to handle errors
+   * in-process.
+   */
+  @Deprecated(
+    message = "0.3.1 changed applyCode to Result; this overload is restored in 0.3.2 for source compatibility. Prefer applyCode(code) { result -> ... }.",
+    replaceWith = ReplaceWith(
+      "applyCode(code) { result -> result.onSuccess(callback).onFailure { /* TapAppLinkRedeemException */ } }",
+    ),
+  )
+  @JvmStatic
+  fun applyCode(code: String, callback: (JSONObject) -> Unit) {
+    io.execute {
+      try {
+        callback(redeemCode(code))
+      } catch (error: Throwable) {
+        throw mapNetworkFailure(error)
+      }
+    }
+  }
+
+  /**
    * Redeems a discount code via `/redeemCode`.
    *
    * On success, [callback] receives [Result.success] with the JSON body
@@ -114,27 +141,29 @@ object TapAppLink {
    * On failure, [callback] receives [Result.failure] with a
    * [TapAppLinkRedeemException] case.
    *
-   * Signature note: the callback changed from `(JSONObject) -> Unit` in 0.3.0
-   * to `(Result<JSONObject>) -> Unit` so errors are typed instead of returned
-   * as a fake success body.
+   * `@JvmName` avoids a JVM signature clash with the deprecated
+   * `(JSONObject) -> Unit` overload after type erasure.
    */
   @JvmStatic
+  @JvmName("applyCodeWithResult")
   fun applyCode(code: String, callback: (Result<JSONObject>) -> Unit) {
     io.execute {
       callback(
-        runCatching {
-          val cfg = requireConfig()
-          val body = JSONObject().put("code", code).put("platform", "ANDROID")
-          lastAppUserId?.let { body.put("appUserId", it) }
-          store?.attributionId?.let { body.put("attributionId", it) }
-          val result = post(cfg, "/redeemCode", body)
-          store?.let { cacheFromResult(it, result) }
-          result
-        }.recoverCatching { error ->
+        runCatching { redeemCode(code) }.recoverCatching { error ->
           throw mapNetworkFailure(error)
         },
       )
     }
+  }
+
+  private fun redeemCode(code: String): JSONObject {
+    val cfg = requireConfig()
+    val body = JSONObject().put("code", code).put("platform", "ANDROID")
+    lastAppUserId?.let { body.put("appUserId", it) }
+    store?.attributionId?.let { body.put("attributionId", it) }
+    val result = post(cfg, "/redeemCode", body)
+    store?.let { cacheFromResult(it, result) }
+    return result
   }
 
   @JvmStatic
