@@ -61,11 +61,37 @@ internal class TapAppLinkStore(
       }
     }
 
+  /**
+   * Returns the pending redeem [requestId] for [normalizedCode], creating and
+   * persisting a new UUID when the code differs or nothing is pending.
+   */
+  fun resolveRedeemRequestId(normalizedCode: String): String {
+    val existingCode = prefs.getString(KEY_PENDING_REDEEM_CODE, null)
+    val existingId = prefs.getString(KEY_PENDING_REDEEM_REQUEST_ID, null)
+    if (existingCode == normalizedCode && !existingId.isNullOrBlank()) {
+      return existingId
+    }
+    val created = UUID.randomUUID().toString()
+    prefs.putString(KEY_PENDING_REDEEM_CODE, normalizedCode)
+    prefs.putString(KEY_PENDING_REDEEM_REQUEST_ID, created)
+    return created
+  }
+
+  fun clearPendingRedeem() {
+    prefs.remove(KEY_PENDING_REDEEM_CODE)
+    prefs.remove(KEY_PENDING_REDEEM_REQUEST_ID)
+  }
+
+  fun pendingRedeemNormalizedCode(): String? = prefs.getString(KEY_PENDING_REDEEM_CODE, null)?.takeIf { it.isNotBlank() }
+
+  fun pendingRedeemRequestId(): String? = prefs.getString(KEY_PENDING_REDEEM_REQUEST_ID, null)?.takeIf { it.isNotBlank() }
+
   fun clear() {
     prefs.clear()
   }
 
-  fun debugSnapshot(): String = "installId=${installId()} tracked=$tracked attributionId=$attributionId offer=$offer"
+  fun debugSnapshot(): String = "installId=${installId()} tracked=$tracked attributionId=$attributionId offer=$offer " +
+    "pendingRedeem=${pendingRedeemNormalizedCode()}/${pendingRedeemRequestId()}"
 
   companion object {
     internal const val PREFS_NAME = "tapapplink_sdk"
@@ -75,6 +101,8 @@ internal class TapAppLinkStore(
     private const val KEY_OFFER_CREATOR = "offer_creator_name"
     private const val KEY_OFFER_PROMO = "offer_promo_code"
     private const val KEY_OFFER_BILLING = "offer_billing_offer_id"
+    private const val KEY_PENDING_REDEEM_CODE = "pending_redeem_code"
+    private const val KEY_PENDING_REDEEM_REQUEST_ID = "pending_redeem_request_id"
 
     fun from(context: Context): TapAppLinkStore = TapAppLinkStore(
       SharedPreferencesKeyValueStore(

@@ -19,7 +19,7 @@ dependencyResolutionManagement {
 Then in the app module:
 
 ```kotlin
-implementation("com.github.tapapplink:tapapplink-android:0.3.1")
+implementation("com.github.tapapplink:tapapplink-android:0.3.2")
 ```
 
 `./gradlew` needs JDK 17 or 21. JDK 25 is not supported by this Android Gradle Plugin.
@@ -119,7 +119,7 @@ Purchases are attributed through billing webhooks. Leave out a client `trackPurc
 
 GitHub Actions runs on every pull request and push to `main`: Gradle assemble, unit tests, ktlint, and Android Lint.
 
-Pushing a semver tag (`0.3.1`, `v0.3.1`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
+Pushing a semver tag (`0.3.2`, `v0.3.2`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
 
 ### Local checks
 
