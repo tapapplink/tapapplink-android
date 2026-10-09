@@ -1,6 +1,6 @@
 # Tap App Link Android SDK
 
-Kotlin library for creator install attribution. When the user arrives from Google Play, pass the Play Install Referrer into `trackInstall` for a deterministic match.
+Kotlin library for creator install attribution. On first install the SDK reads the Play Install Referrer and posts once to `/ingestInstall`. State is persisted locally so later launches reuse the attribution id and offer.
 
 ## Install
 
@@ -19,7 +19,7 @@ dependencyResolutionManagement {
 Then in the app module:
 
 ```kotlin
-implementation("com.github.tapapplink:tapapplink-android:0.2.0")
+implementation("com.github.tapapplink:tapapplink-android:0.3.0")
 ```
 
 `./gradlew` needs JDK 17 or 21. JDK 25 is not supported by this Android Gradle Plugin.
@@ -31,19 +31,25 @@ TapAppLink.configure(
   TapAppLinkConfig(
     publicKey = "etk_live_…",
     environment = TapAppLinkEnvironment.PRODUCTION,
+    debugLogging = BuildConfig.DEBUG,
   )
 )
 
-TapAppLink.trackInstall(context) { /* install result */ }
-// Or pass Play Install Referrer when you collect it:
+// Call on every launch. Posts once per install; later launches return stored state.
+TapAppLink.trackInstall(context) { result ->
+  val offer = TapAppLink.getOffer()
+}
+
+// Optional: override the Play Install Referrer if you already collected it.
 TapAppLink.trackInstall(context, installReferrer) { }
 
 TapAppLink.setAppUserId(Purchases.sharedInstance.appUserID) { }
-val offer = TapAppLink.getOffer()
 TapAppLink.applyCode("SARAH10") { }
 ```
 
-`trackInstall()` is safe on every launch — it only records once per install. Call `resetForTesting()` in debug builds before repeating a match test on the same install.
+`trackInstall()` is safe on every launch. It stores an `installId`, the tracked flag, attribution id and offer in SharedPreferences, and only posts `/ingestInstall` once per install. `setAppUserId` / identify send the stored `attributionId`.
+
+Call `resetForTesting(context)` in debug builds before repeating a match test on the same device.
 
 Purchases are attributed through billing webhooks. Leave out a client `trackPurchase` call.
 
@@ -51,7 +57,7 @@ Purchases are attributed through billing webhooks. Leave out a client `trackPurc
 
 GitHub Actions runs on every pull request and push to `main`: Gradle assemble, unit tests, ktlint, and Android Lint.
 
-Pushing a semver tag (`0.2.0`, `v0.2.0`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
+Pushing a semver tag (`0.3.0`, `v0.3.0`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
 
 ### Local checks
 
