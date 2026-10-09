@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.tapapplink"
-version = "0.3.0"
+version = "0.3.1"
 
 android {
   namespace = "com.tapapplink.sdk"
@@ -43,6 +43,8 @@ ktlint {
 dependencies {
   implementation("com.android.installreferrer:installreferrer:2.2")
   testImplementation("junit:junit:4.13.2")
+  // Real org.json for JVM unit tests (android.jar stubs JSONObject).
+  testImplementation("org.json:json:20240303")
 }
 
 afterEvaluate {
@@ -52,7 +54,7 @@ afterEvaluate {
         from(components["release"])
         groupId = "com.tapapplink"
         artifactId = "sdk"
-        version = "0.3.0"
+        version = "0.3.1"
         pom {
           name.set("Tap App Link Android SDK")
           description.set("Tap App Link attribution SDK for Android")

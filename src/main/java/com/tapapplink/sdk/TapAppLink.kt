@@ -3,8 +3,6 @@ package com.tapapplink.sdk
 import android.content.Context
 import android.util.Log
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -32,10 +30,14 @@ data class TapAppLinkOffer(
 object TapAppLink {
   private const val TAG = "TapAppLink"
 
+  /** Sent on every request as `X-TapAppLink-SDK-Version`. */
+  const val SDK_VERSION = "0.3.1"
+
   private var config: TapAppLinkConfig? = null
   private var store: TapAppLinkStore? = null
   private var lastAppUserId: String? = null
   private var referrerReader: ReferrerReader = PlayInstallReferrerReader()
+  private var httpClient: TapAppLinkHttpClient = DefaultTapAppLinkHttpClient
   private val io = Executors.newSingleThreadExecutor()
 
   @JvmStatic
@@ -80,30 +82,58 @@ object TapAppLink {
         .put("firstOpenAt", isoNow())
       referrer?.takeIf { it.isNotBlank() }?.let { body.put("installReferrer", it) }
       debugLog("trackInstall posting installId=$installId hasReferrer=${body.has("installReferrer")}")
-      val result = post(cfg, "/ingestInstall", body)
-      persisted.tracked = true
-      cacheFromResult(persisted, result)
-      debugLog("trackInstall response=$result; ${persisted.debugSnapshot()}")
-      callback(result)
+      try {
+        val result = post(cfg, "/ingestInstall", body)
+        persisted.tracked = true
+        cacheFromResult(persisted, result)
+        debugLog("trackInstall response=$result; ${persisted.debugSnapshot()}")
+        callback(result)
+      } catch (error: Exception) {
+        debugLog("trackInstall failed: ${error.message}")
+      }
     }
   }
 
   @JvmStatic
   fun setAppUserId(appUserId: String, callback: (JSONObject) -> Unit) {
     lastAppUserId = appUserId
-    io.execute { callback(identify(appUserId)) }
+    io.execute {
+      try {
+        callback(identify(appUserId))
+      } catch (error: Exception) {
+        debugLog("setAppUserId failed: ${error.message}")
+      }
+    }
   }
 
+  /**
+   * Redeems a discount code via `/redeemCode`.
+   *
+   * On success, [callback] receives [Result.success] with the JSON body
+   * (including `alreadyAttributed` when the install was already linked).
+   * On failure, [callback] receives [Result.failure] with a
+   * [TapAppLinkRedeemException] case.
+   *
+   * Signature note: the callback changed from `(JSONObject) -> Unit` in 0.3.0
+   * to `(Result<JSONObject>) -> Unit` so errors are typed instead of returned
+   * as a fake success body.
+   */
   @JvmStatic
-  fun applyCode(code: String, callback: (JSONObject) -> Unit) {
+  fun applyCode(code: String, callback: (Result<JSONObject>) -> Unit) {
     io.execute {
-      val cfg = requireConfig()
-      val body = JSONObject().put("code", code).put("platform", "ANDROID")
-      lastAppUserId?.let { body.put("appUserId", it) }
-      store?.attributionId?.let { body.put("attributionId", it) }
-      val result = post(cfg, "/redeemCode", body)
-      store?.let { cacheFromResult(it, result) }
-      callback(result)
+      callback(
+        runCatching {
+          val cfg = requireConfig()
+          val body = JSONObject().put("code", code).put("platform", "ANDROID")
+          lastAppUserId?.let { body.put("appUserId", it) }
+          store?.attributionId?.let { body.put("attributionId", it) }
+          val result = post(cfg, "/redeemCode", body)
+          store?.let { cacheFromResult(it, result) }
+          result
+        }.recoverCatching { error ->
+          throw mapNetworkFailure(error)
+        },
+      )
     }
   }
 
@@ -145,6 +175,7 @@ object TapAppLink {
       store?.clear()
     }
     store = null
+    httpClient = DefaultTapAppLinkHttpClient
     debugLog("resetForTesting cleared local state")
   }
 
@@ -154,6 +185,10 @@ object TapAppLink {
 
   internal fun setStoreForTesting(next: TapAppLinkStore?) {
     store = next
+  }
+
+  internal fun setHttpClientForTesting(client: TapAppLinkHttpClient) {
+    httpClient = client
   }
 
   private fun ensureStore(context: Context): TapAppLinkStore {
@@ -211,21 +246,15 @@ object TapAppLink {
     val base = (cfg.ingestUrl ?: "https://us-central1-tapapplink.cloudfunctions.net")
       .trimEnd('/')
     val url = "$base$path"
-    debugLog("POST $url body=$body auth=${redactKey(cfg.publicKey)}")
-    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-      requestMethod = "POST"
-      setRequestProperty("Authorization", "Bearer ${cfg.publicKey}")
-      setRequestProperty("Content-Type", "application/json")
-      doOutput = true
-      connectTimeout = 15_000
-      readTimeout = 15_000
-    }
-    connection.outputStream.use { it.write(body.toString().toByteArray()) }
-    val stream =
-      if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
-    val text = stream?.bufferedReader()?.readText().orEmpty()
-    debugLog("POST $path status=${connection.responseCode} response=$text")
-    return if (text.isBlank()) JSONObject() else JSONObject(text)
+    val headers = mapOf(
+      "Authorization" to "Bearer ${cfg.publicKey}",
+      "Content-Type" to "application/json",
+      "X-TapAppLink-SDK-Version" to SDK_VERSION,
+    )
+    debugLog("POST $url body=$body auth=${redactKey(cfg.publicKey)} sdk=$SDK_VERSION")
+    val response = httpClient.post(url, headers, body.toString())
+    debugLog("POST $path status=${response.status} response=${response.body}")
+    return requireSuccessBody(path, response)
   }
 
   private fun debugLog(message: String) {
