@@ -17,7 +17,7 @@
   After (0.3.2):
 
   ```kotlin
-  TapAppLink.applyCode("SARAH10") { result ->
+  TapAppLink.applyCode("SARAH10") { result: Result<JSONObject> ->
     result.onSuccess { json ->
       // real success only
     }.onFailure { error ->
