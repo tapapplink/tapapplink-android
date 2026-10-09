@@ -1,6 +1,7 @@
 package com.tapapplink.sdk
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -19,6 +20,7 @@ data class TapAppLinkConfig(
   val publicKey: String,
   val environment: TapAppLinkEnvironment,
   val ingestUrl: String? = null,
+  val debugLogging: Boolean = false,
 )
 
 data class TapAppLinkOffer(
@@ -28,16 +30,18 @@ data class TapAppLinkOffer(
 )
 
 object TapAppLink {
+  private const val TAG = "TapAppLink"
+
   private var config: TapAppLinkConfig? = null
-  private var tracked = false
-  private var lastAttributionId: String? = null
+  private var store: TapAppLinkStore? = null
   private var lastAppUserId: String? = null
-  private var lastOffer: TapAppLinkOffer? = null
+  private var referrerReader: ReferrerReader = PlayInstallReferrerReader()
   private val io = Executors.newSingleThreadExecutor()
 
   @JvmStatic
   fun configure(next: TapAppLinkConfig) {
     config = next
+    debugLog("configure environment=${next.environment.value} debugLogging=${next.debugLogging}")
   }
 
   @JvmStatic
@@ -46,14 +50,23 @@ object TapAppLink {
     installReferrer: String? = null,
     callback: (JSONObject) -> Unit,
   ) {
+    // Hydrate prefs on the caller thread so getOffer / setAppUserId see stored state
+    // immediately after trackInstall returns on later launches.
+    val persisted = ensureStore(context)
     io.execute {
-      if (tracked) {
-        callback(JSONObject().put("matched", false).put("skipped", true))
+      if (persisted.tracked) {
+        val skipped = skippedResult(persisted)
+        debugLog("trackInstall skipped; ${persisted.debugSnapshot()}")
+        callback(skipped)
         return@execute
       }
       val cfg = requireConfig()
+      val installId = persisted.installId()
+      val referrer = installReferrer?.takeIf { it.isNotBlank() }
+        ?: referrerReader.read(context, PlayInstallReferrerReader.DEFAULT_TIMEOUT_MS)
       val body = JSONObject()
         .put("platform", "ANDROID")
+        .put("installId", installId)
         .put(
           "deviceFamily",
           if (context.resources.configuration.smallestScreenWidthDp >= 600) {
@@ -65,10 +78,12 @@ object TapAppLink {
         .put("locale", Locale.getDefault().toLanguageTag())
         .put("networkContext", Locale.getDefault().country.ifEmpty { "unknown" })
         .put("firstOpenAt", isoNow())
-      installReferrer?.let { body.put("installReferrer", it) }
+      referrer?.takeIf { it.isNotBlank() }?.let { body.put("installReferrer", it) }
+      debugLog("trackInstall posting installId=$installId hasReferrer=${body.has("installReferrer")}")
       val result = post(cfg, "/ingestInstall", body)
-      tracked = true
-      cacheFromResult(result)
+      persisted.tracked = true
+      cacheFromResult(persisted, result)
+      debugLog("trackInstall response=$result; ${persisted.debugSnapshot()}")
       callback(result)
     }
   }
@@ -85,21 +100,24 @@ object TapAppLink {
       val cfg = requireConfig()
       val body = JSONObject().put("code", code).put("platform", "ANDROID")
       lastAppUserId?.let { body.put("appUserId", it) }
-      lastAttributionId?.let { body.put("attributionId", it) }
+      store?.attributionId?.let { body.put("attributionId", it) }
       val result = post(cfg, "/redeemCode", body)
-      cacheFromResult(result)
+      store?.let { cacheFromResult(it, result) }
       callback(result)
     }
   }
 
   @JvmStatic
-  fun getOffer(): TapAppLinkOffer? = lastOffer
+  fun getOffer(): TapAppLinkOffer? = store?.offer
 
   @JvmStatic
-  fun getAttributionId(): String? = lastAttributionId
+  fun getAttributionId(): String? = store?.attributionId
 
   @JvmStatic
   fun getAppUserId(): String? = lastAppUserId
+
+  @JvmStatic
+  fun getInstallId(): String? = store?.installId()
 
   @JvmStatic
   fun linkRevenueCatUser(appUserId: String, callback: (JSONObject) -> Unit) = setAppUserId(appUserId, callback)
@@ -113,28 +131,71 @@ object TapAppLink {
   @JvmStatic
   fun linkQonversionUser(userId: String, callback: (JSONObject) -> Unit) = setAppUserId(userId, callback)
 
+  /**
+   * Clears in-memory and persisted install state. Pass [context] so SharedPreferences
+   * are cleared even when [trackInstall] has not run in this process.
+   */
   @JvmStatic
-  fun resetForTesting() {
-    tracked = false
-    lastAttributionId = null
+  @JvmOverloads
+  fun resetForTesting(context: Context? = null) {
     lastAppUserId = null
-    lastOffer = null
+    if (context != null) {
+      ensureStore(context).clear()
+    } else {
+      store?.clear()
+    }
+    store = null
+    debugLog("resetForTesting cleared local state")
   }
 
-  private fun cacheFromResult(result: JSONObject) {
-    lastAttributionId = result.optString("attributionId").takeIf { it.isNotBlank() }
-    val offer = result.optJSONObject("offer") ?: return
-    lastOffer = TapAppLinkOffer(
-      creatorName = offer.optString("creatorName"),
-      promoCode = offer.optString("promoCode").takeIf { it.isNotBlank() },
-      billingOfferId = offer.optString("billingOfferId").takeIf { it.isNotBlank() },
+  internal fun setReferrerReaderForTesting(reader: ReferrerReader) {
+    referrerReader = reader
+  }
+
+  internal fun setStoreForTesting(next: TapAppLinkStore?) {
+    store = next
+  }
+
+  private fun ensureStore(context: Context): TapAppLinkStore {
+    val existing = store
+    if (existing != null) return existing
+    return TapAppLinkStore.from(context).also { store = it }
+  }
+
+  private fun skippedResult(persisted: TapAppLinkStore): JSONObject {
+    val result = JSONObject()
+      .put("matched", false)
+      .put("skipped", true)
+    persisted.attributionId?.let { result.put("attributionId", it) }
+    persisted.offer?.let { offer ->
+      result.put(
+        "offer",
+        JSONObject()
+          .put("creatorName", offer.creatorName)
+          .put("promoCode", offer.promoCode ?: JSONObject.NULL)
+          .put("billingOfferId", offer.billingOfferId ?: JSONObject.NULL),
+      )
+    }
+    return result
+  }
+
+  private fun cacheFromResult(persisted: TapAppLinkStore, result: JSONObject) {
+    result.optString("attributionId").takeIf { it.isNotBlank() }?.let {
+      persisted.attributionId = it
+    }
+    val offerJson = result.optJSONObject("offer") ?: return
+    persisted.offer = TapAppLinkOffer(
+      creatorName = offerJson.optString("creatorName"),
+      promoCode = offerJson.optString("promoCode").takeIf { it.isNotBlank() },
+      billingOfferId = offerJson.optString("billingOfferId").takeIf { it.isNotBlank() },
     )
   }
 
   private fun identify(appUserId: String): JSONObject {
     val cfg = requireConfig()
     val body = JSONObject().put("appUserId", appUserId)
-    lastAttributionId?.let { body.put("attributionId", it) }
+    store?.attributionId?.let { body.put("attributionId", it) }
+    debugLog("ingestIdentify attributionId=${store?.attributionId}")
     return post(cfg, "/ingestIdentify", body)
   }
 
@@ -149,7 +210,9 @@ object TapAppLink {
   private fun post(cfg: TapAppLinkConfig, path: String, body: JSONObject): JSONObject {
     val base = (cfg.ingestUrl ?: "https://us-central1-tapapplink.cloudfunctions.net")
       .trimEnd('/')
-    val connection = (URL("$base$path").openConnection() as HttpURLConnection).apply {
+    val url = "$base$path"
+    debugLog("POST $url body=$body auth=${redactKey(cfg.publicKey)}")
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
       requestMethod = "POST"
       setRequestProperty("Authorization", "Bearer ${cfg.publicKey}")
       setRequestProperty("Content-Type", "application/json")
@@ -161,6 +224,18 @@ object TapAppLink {
     val stream =
       if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream
     val text = stream?.bufferedReader()?.readText().orEmpty()
+    debugLog("POST $path status=${connection.responseCode} response=$text")
     return if (text.isBlank()) JSONObject() else JSONObject(text)
+  }
+
+  private fun debugLog(message: String) {
+    if (config?.debugLogging == true) {
+      Log.d(TAG, message)
+    }
+  }
+
+  internal fun redactKey(key: String): String {
+    if (key.length <= 8) return "***"
+    return "${key.take(4)}...${key.takeLast(4)}"
   }
 }
