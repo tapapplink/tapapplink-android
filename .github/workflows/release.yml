@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Build, test, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Grant Gradle wrapper execute permission
+        run: chmod +x gradlew
+
+      - name: Build
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon test
+
+      - name: ktlint
+        run: ./gradlew --no-daemon ktlintCheck
+
+      - name: Android Lint
+        run: ./gradlew --no-daemon lintRelease
+
+  github-release:
+    name: GitHub Release
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+
+
+  jitpack:
+    name: Trigger JitPack build
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+
+    steps:
+      - name: Resolve tag without optional v prefix
+        id: tag
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          echo "raw=${REF}" >> "$GITHUB_OUTPUT"
+          echo "bare=${REF#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Request JitPack build
+        run: |
+          TAG="${{ steps.tag.outputs.raw }}"
+          URL="https://jitpack.io/com/github/tapapplink/tapapplink-android/${TAG}/build.log"
+          echo "Requesting ${URL}"
+          # JitPack builds on first request; allow time for the queue to accept it.
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 5 \
+            --max-time 120 \
+            "${URL}" -o /tmp/jitpack-build.log || true
+          head -n 40 /tmp/jitpack-build.log || true
+          echo "JitPack page: https://jitpack.io/#tapapplink/tapapplink-android/${TAG}"
+
+  maven-central:
+    name: Publish to Maven Central (optional)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Disabled until a repo admin adds the Maven Central secrets listed in README.
+    # Flip this to true (and keep the secret check) once publishing is configured.
+    if: ${{ false }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.SIGNING_GPG_PRIVATE_KEY }}
+          gpg-passphrase: SIGNING_GPG_PASSPHRASE
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Grant Gradle wrapper execute permission
+        run: chmod +x gradlew
+
+      - name: Publish to Maven Central
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNING_GPG_PASSPHRASE: ${{ secrets.SIGNING_GPG_PASSPHRASE }}
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_GPG_PASSPHRASE }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: |
+          if [ -z "${MAVEN_CENTRAL_USERNAME}" ] || [ -z "${MAVEN_CENTRAL_PASSWORD}" ]; then
+            echo "Maven Central secrets are not configured; skipping publish."
+            exit 0
+          fi
+          echo "Maven Central publish is wired but the Gradle publishing block is not enabled yet."
+          echo "See README Publishing section for the one-time setup, then enable this job."
+          exit 1

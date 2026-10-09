@@ -102,20 +102,16 @@ object TapAppLink {
   fun getAppUserId(): String? = lastAppUserId
 
   @JvmStatic
-  fun linkRevenueCatUser(appUserId: String, callback: (JSONObject) -> Unit) =
-    setAppUserId(appUserId, callback)
+  fun linkRevenueCatUser(appUserId: String, callback: (JSONObject) -> Unit) = setAppUserId(appUserId, callback)
 
   @JvmStatic
-  fun linkAdaptyUser(customerUserId: String, callback: (JSONObject) -> Unit) =
-    setAppUserId(customerUserId, callback)
+  fun linkAdaptyUser(customerUserId: String, callback: (JSONObject) -> Unit) = setAppUserId(customerUserId, callback)
 
   @JvmStatic
-  fun linkSuperwallUser(appUserId: String, callback: (JSONObject) -> Unit) =
-    setAppUserId(appUserId, callback)
+  fun linkSuperwallUser(appUserId: String, callback: (JSONObject) -> Unit) = setAppUserId(appUserId, callback)
 
   @JvmStatic
-  fun linkQonversionUser(userId: String, callback: (JSONObject) -> Unit) =
-    setAppUserId(userId, callback)
+  fun linkQonversionUser(userId: String, callback: (JSONObject) -> Unit) = setAppUserId(userId, callback)
 
   @JvmStatic
   fun resetForTesting() {
@@ -142,8 +138,7 @@ object TapAppLink {
     return post(cfg, "/ingestIdentify", body)
   }
 
-  private fun requireConfig(): TapAppLinkConfig =
-    config ?: throw IllegalStateException("TapAppLink.configure() must be called first")
+  private fun requireConfig(): TapAppLinkConfig = config ?: throw IllegalStateException("TapAppLink.configure() must be called first")
 
   private fun isoNow(): String {
     val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)

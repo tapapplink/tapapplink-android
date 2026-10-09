@@ -1,6 +1,7 @@
 plugins {
   id("com.android.library") version "8.7.3"
   id("org.jetbrains.kotlin.android") version "2.0.21"
+  id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
   id("maven-publish")
 }
 
@@ -20,11 +21,27 @@ android {
   kotlinOptions {
     jvmTarget = "17"
   }
+  lint {
+    abortOnError = true
+    warningsAsErrors = false
+  }
+  testOptions {
+    unitTests.isReturnDefaultValues = true
+  }
   publishing {
     singleVariant("release") {
       withSourcesJar()
     }
   }
+}
+
+ktlint {
+  android.set(true)
+  ignoreFailures.set(false)
+}
+
+dependencies {
+  testImplementation("junit:junit:4.13.2")
 }
 
 afterEvaluate {
