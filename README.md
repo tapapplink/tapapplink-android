@@ -19,7 +19,7 @@ dependencyResolutionManagement {
 Then in the app module:
 
 ```kotlin
-implementation("com.github.tapapplink:tapapplink-android:0.3.0")
+implementation("com.github.tapapplink:tapapplink-android:0.3.1")
 ```
 
 `./gradlew` needs JDK 17 or 21. JDK 25 is not supported by this Android Gradle Plugin.
@@ -44,8 +44,70 @@ TapAppLink.trackInstall(context) { result ->
 TapAppLink.trackInstall(context, installReferrer) { }
 
 TapAppLink.setAppUserId(Purchases.sharedInstance.appUserID) { }
-TapAppLink.applyCode("SARAH10") { }
 ```
+
+### Apply a discount code
+
+Show success only on a real success result. Map each outcome to UI like this:
+
+```kotlin
+TapAppLink.applyCode(code) { result ->
+  result.onSuccess { body ->
+    val offer = TapAppLink.getOffer()
+    val offerLine = offer?.let { "${it.creatorName}'s offer" }
+    if (body.optBoolean("alreadyAttributed")) {
+      // "You're all set" — hide the code; show offerLine if any.
+      showStatus(title = "You're all set", codeVisible = false, hint = offerLine)
+    } else {
+      // "Code applied" — show the code; show offerLine if any.
+      showStatus(title = "Code applied", codeVisible = true, code = code, hint = offerLine)
+    }
+  }.onFailure { error ->
+    when (error) {
+      is TapAppLinkRedeemException.UnknownCode -> {
+        showStatus(
+          title = "We don't recognise that code. Check it and try again.",
+          hint = "Codes aren't case sensitive.",
+        )
+      }
+      is TapAppLinkRedeemException.InactiveCode -> {
+        showStatus(
+          title = "This code is no longer active.",
+          hint = "You can still subscribe at the regular price.",
+        )
+      }
+      is TapAppLinkRedeemException.WrongEnvironment -> {
+        // Same customer copy as unknownCode. Never say "environment" to customers.
+        Log.w(TAG, TapAppLinkRedeemException.WrongEnvironment.DEVELOPER_WARNING)
+        showStatus(
+          title = "We don't recognise that code. Check it and try again.",
+          hint = "Codes aren't case sensitive.",
+        )
+      }
+      is TapAppLinkRedeemException.Network -> {
+        showStatus(
+          title = "We couldn't check your code. Check your connection and try again.",
+        )
+      }
+      is TapAppLinkRedeemException.Other -> {
+        Log.w(TAG, "applyCode failed status=${error.status} message=${error.message}")
+        showStatus(
+          title = "We couldn't check your code. Check your connection and try again.",
+        )
+      }
+      else -> {
+        Log.w(TAG, "applyCode failed", error)
+        showStatus(
+          title = "We couldn't check your code. Check your connection and try again.",
+        )
+      }
+    }
+  }
+}
+```
+
+`TapAppLinkRedeemException.WrongEnvironment.DEVELOPER_WARNING` is exactly:
+`This code belongs to the other environment (Sandbox or Production). Check your API key.`
 
 `trackInstall()` is safe on every launch. It stores an `installId`, the tracked flag, attribution id and offer in SharedPreferences, and only posts `/ingestInstall` once per install. `setAppUserId` / identify send the stored `attributionId`.
 
@@ -57,7 +119,7 @@ Purchases are attributed through billing webhooks. Leave out a client `trackPurc
 
 GitHub Actions runs on every pull request and push to `main`: Gradle assemble, unit tests, ktlint, and Android Lint.
 
-Pushing a semver tag (`0.3.0`, `v0.3.0`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
+Pushing a semver tag (`0.3.1`, `v0.3.1`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
 
 ### Local checks
 
