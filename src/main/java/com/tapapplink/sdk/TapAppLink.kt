@@ -7,6 +7,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.UUID
 import java.util.concurrent.Executors
 
 enum class TapAppLinkEnvironment(val value: String) {
@@ -31,13 +32,15 @@ object TapAppLink {
   private const val TAG = "TapAppLink"
 
   /** Sent on every request as `X-TapAppLink-SDK-Version`. */
-  const val SDK_VERSION = "0.3.1"
+  const val SDK_VERSION = "0.3.2"
 
   private var config: TapAppLinkConfig? = null
   private var store: TapAppLinkStore? = null
   private var lastAppUserId: String? = null
   private var referrerReader: ReferrerReader = PlayInstallReferrerReader()
   private var httpClient: TapAppLinkHttpClient = DefaultTapAppLinkHttpClient
+  private var memoryPendingRedeemCode: String? = null
+  private var memoryPendingRedeemRequestId: String? = null
   private val io = Executors.newSingleThreadExecutor()
 
   @JvmStatic
@@ -121,18 +124,36 @@ object TapAppLink {
   @JvmStatic
   fun applyCode(code: String, callback: (Result<JSONObject>) -> Unit) {
     io.execute {
+      val normalized = normalizeRedeemCode(code)
+      val requestId = resolveRedeemRequestId(normalized)
       callback(
         runCatching {
           val cfg = requireConfig()
-          val body = JSONObject().put("code", code).put("platform", "ANDROID")
+          val body = JSONObject()
+            .put("code", code)
+            .put("platform", "ANDROID")
+            .put("requestId", requestId)
           lastAppUserId?.let { body.put("appUserId", it) }
           store?.attributionId?.let { body.put("attributionId", it) }
           val result = post(cfg, "/redeemCode", body)
+          // Definitive success: clear pending so a later code gets a fresh id.
+          clearPendingRedeem()
           store?.let { cacheFromResult(it, result) }
           result
-        }.recoverCatching { error ->
-          throw mapNetworkFailure(error)
-        },
+        }.fold(
+          onSuccess = { Result.success(it) },
+          onFailure = { error ->
+            val mapped = mapNetworkFailure(error)
+            when (mapped) {
+              is TapAppLinkRedeemException.UnknownCode,
+              is TapAppLinkRedeemException.InactiveCode,
+              is TapAppLinkRedeemException.WrongEnvironment,
+              -> clearPendingRedeem()
+              else -> Unit // Network / Other: keep requestId for retries
+            }
+            Result.failure(mapped)
+          },
+        ),
       )
     }
   }
@@ -169,6 +190,8 @@ object TapAppLink {
   @JvmOverloads
   fun resetForTesting(context: Context? = null) {
     lastAppUserId = null
+    memoryPendingRedeemCode = null
+    memoryPendingRedeemRequestId = null
     if (context != null) {
       ensureStore(context).clear()
     } else {
@@ -189,6 +212,26 @@ object TapAppLink {
 
   internal fun setHttpClientForTesting(client: TapAppLinkHttpClient) {
     httpClient = client
+  }
+
+  private fun resolveRedeemRequestId(normalizedCode: String): String {
+    val persisted = store
+    if (persisted != null) {
+      return persisted.resolveRedeemRequestId(normalizedCode)
+    }
+    if (memoryPendingRedeemCode == normalizedCode) {
+      memoryPendingRedeemRequestId?.let { return it }
+    }
+    val created = UUID.randomUUID().toString()
+    memoryPendingRedeemCode = normalizedCode
+    memoryPendingRedeemRequestId = created
+    return created
+  }
+
+  private fun clearPendingRedeem() {
+    store?.clearPendingRedeem()
+    memoryPendingRedeemCode = null
+    memoryPendingRedeemRequestId = null
   }
 
   private fun ensureStore(context: Context): TapAppLinkStore {

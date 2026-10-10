@@ -43,7 +43,7 @@ class TapAppLinkApplyCodeTest {
     assertFalse(body.getBoolean("alreadyAttributed"))
     assertEquals("attr_9", TapAppLink.getAttributionId())
     assertEquals("Sarah", TapAppLink.getOffer()?.creatorName)
-    assertEquals("0.3.1", seenHeaders.get()["X-TapAppLink-SDK-Version"])
+    assertEquals("0.3.2", seenHeaders.get()["X-TapAppLink-SDK-Version"])
     assertEquals(TapAppLink.SDK_VERSION, seenHeaders.get()["X-TapAppLink-SDK-Version"])
   }
 

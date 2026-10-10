@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- **Fixed:** retrying `applyCode` after a timeout could count an install twice. 0.3.2 sends a request ID so the server recognises the retry. No code changes needed.
+
 ## 0.3.1
 
 - **Breaking (Android only):** `applyCode` now returns `Result<JSONObject>`, so 0.3.0 call sites won't compile until they're updated. This is deliberate. The 0.3.0 call couldn't report an error, so any app using it may show an invalid code as applied. Update each call to handle the failure case (snippet below).
