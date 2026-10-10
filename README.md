@@ -103,16 +103,12 @@ fun redeem(code: String, isRetry: Boolean = false) {
           Log.w(TAG, "applyCode failed status=${error.status} message=${error.message}")
           showStatus(
             title = "We couldn't check your code. Check your connection and try again.",
-            actionLabel = "Try again",
-            onAction = { redeem(code) },
           )
         }
         else -> {
           Log.w(TAG, "applyCode failed", error)
           showStatus(
             title = "We couldn't check your code. Check your connection and try again.",
-            actionLabel = "Try again",
-            onAction = { redeem(code) },
           )
         }
       }
