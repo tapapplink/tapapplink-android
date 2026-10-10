@@ -50,62 +50,77 @@ TapAppLink.setAppUserId(Purchases.sharedInstance.appUserID) { }
 
 ### Apply a discount code
 
-Show success only on a real success result. Map each outcome to UI like this:
+Show success only on a real success result. Map each outcome to UI like this. On a network or timeout error only (never unknown, inactive or wrongEnvironment), retry `applyCode` once automatically with the same code. From 0.3.2 that retry is safe because the SDK reuses its request ID, so the server won't count the install twice.
 
 ```kotlin
-TapAppLink.applyCode(code) { result ->
-  result.onSuccess { body ->
-    val offer = TapAppLink.getOffer()
-    val offerLine = offer?.let { "${it.creatorName}'s offer" }
-    if (body.optBoolean("alreadyAttributed")) {
-      // "You're all set" — hide the code; show offerLine if any.
-      showStatus(title = "You're all set", codeVisible = false, hint = offerLine)
-    } else {
-      // "Code applied" — show the code; show offerLine if any.
-      showStatus(title = "Code applied", codeVisible = true, code = code, hint = offerLine)
-    }
-  }.onFailure { error ->
-    when (error) {
-      is TapAppLinkRedeemException.UnknownCode -> {
-        showStatus(
-          title = "We don't recognise that code. Check it and try again.",
-          hint = "Codes aren't case sensitive.",
-        )
+fun redeem(code: String, isRetry: Boolean = false) {
+  TapAppLink.applyCode(code) { result ->
+    result.onSuccess { body ->
+      val offer = TapAppLink.getOffer()
+      val offerLine = offer?.let { "${it.creatorName}'s offer" }
+      if (body.optBoolean("alreadyAttributed")) {
+        // "You're all set" — hide the code; show offerLine if any.
+        showStatus(title = "You're all set", codeVisible = false, hint = offerLine)
+      } else {
+        // "Code applied" — show the code; show offerLine if any.
+        showStatus(title = "Code applied", codeVisible = true, code = code, hint = offerLine)
       }
-      is TapAppLinkRedeemException.InactiveCode -> {
-        showStatus(
-          title = "This code is no longer active.",
-          hint = "You can still subscribe at the regular price.",
-        )
-      }
-      is TapAppLinkRedeemException.WrongEnvironment -> {
-        // Same customer copy as unknownCode. Never say "environment" to customers.
-        Log.w(TAG, TapAppLinkRedeemException.WrongEnvironment.DEVELOPER_WARNING)
-        showStatus(
-          title = "We don't recognise that code. Check it and try again.",
-          hint = "Codes aren't case sensitive.",
-        )
-      }
-      is TapAppLinkRedeemException.Network -> {
-        showStatus(
-          title = "We couldn't check your code. Check your connection and try again.",
-        )
-      }
-      is TapAppLinkRedeemException.Other -> {
-        Log.w(TAG, "applyCode failed status=${error.status} message=${error.message}")
-        showStatus(
-          title = "We couldn't check your code. Check your connection and try again.",
-        )
-      }
-      else -> {
-        Log.w(TAG, "applyCode failed", error)
-        showStatus(
-          title = "We couldn't check your code. Check your connection and try again.",
-        )
+    }.onFailure { error ->
+      when (error) {
+        is TapAppLinkRedeemException.UnknownCode -> {
+          showStatus(
+            title = "We don't recognise that code. Check it and try again.",
+            hint = "Codes aren't case sensitive.",
+          )
+        }
+        is TapAppLinkRedeemException.InactiveCode -> {
+          showStatus(
+            title = "This code is no longer active.",
+            hint = "You can still subscribe at the regular price.",
+          )
+        }
+        is TapAppLinkRedeemException.WrongEnvironment -> {
+          // Same customer copy as unknownCode. Never say "environment" to customers.
+          Log.w(TAG, TapAppLinkRedeemException.WrongEnvironment.DEVELOPER_WARNING)
+          showStatus(
+            title = "We don't recognise that code. Check it and try again.",
+            hint = "Codes aren't case sensitive.",
+          )
+        }
+        is TapAppLinkRedeemException.Network -> {
+          if (!isRetry) {
+            // Automatic retry once on network/timeout only.
+            redeem(code, isRetry = true)
+          } else {
+            showStatus(
+              title = "We couldn't check your code. Check your connection and try again.",
+              actionLabel = "Try again",
+              onAction = { redeem(code) },
+            )
+          }
+        }
+        is TapAppLinkRedeemException.Other -> {
+          Log.w(TAG, "applyCode failed status=${error.status} message=${error.message}")
+          showStatus(
+            title = "We couldn't check your code. Check your connection and try again.",
+            actionLabel = "Try again",
+            onAction = { redeem(code) },
+          )
+        }
+        else -> {
+          Log.w(TAG, "applyCode failed", error)
+          showStatus(
+            title = "We couldn't check your code. Check your connection and try again.",
+            actionLabel = "Try again",
+            onAction = { redeem(code) },
+          )
+        }
       }
     }
   }
 }
+
+redeem(code)
 ```
 
 `TapAppLinkRedeemException.WrongEnvironment.DEVELOPER_WARNING` is exactly:
