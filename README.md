@@ -16,11 +16,13 @@ dependencyResolutionManagement {
 }
 ```
 
-Then in the app module:
+Then in the app module (0.3.2 or later):
 
 ```kotlin
 implementation("com.github.tapapplink:tapapplink-android:0.3.2")
 ```
+
+Upgrading from 0.3.0? 0.3.1 changed `applyCode` on Android. See the [changelog](CHANGELOG.md).
 
 `./gradlew` needs JDK 17 or 21. JDK 25 is not supported by this Android Gradle Plugin.
 
@@ -129,7 +131,7 @@ Pushing a semver tag (`0.3.2`, `v0.3.2`, or a prerelease suffix) runs the same c
 
 ## Publishing
 
-**JitPack (current):** consumers depend on `com.github.tapapplink:tapapplink-android:<tag>`. Tag a release; CI triggers JitPack. No extra secrets are required for that path.
+**JitPack (current):** consumers depend on `com.github.tapapplink:tapapplink-android:0.3.2` (0.3.2 or later). Tag a release; CI triggers JitPack. No extra secrets are required for that path.
 
 **Maven Central (optional, disabled):** the release workflow includes a `maven-central` job left behind `if: false` until a repository admin finishes the one-time setup below. Prefer JitPack until you need Central discovery or a non-`com.github` coordinate.
 
