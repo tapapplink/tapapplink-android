@@ -45,6 +45,7 @@ class TapAppLinkStoreTest {
   @Test
   fun attributionAndOfferPersistAcrossReload() {
     store.attributionId = "attr_123"
+    store.appUserId = "user_42"
     store.offer = TapAppLinkOffer(
       creatorName = "Sarah",
       promoCode = "SARAH10",
@@ -53,6 +54,7 @@ class TapAppLinkStoreTest {
 
     val reloaded = TapAppLinkStore(prefs)
     assertEquals("attr_123", reloaded.attributionId)
+    assertEquals("user_42", reloaded.appUserId)
     assertEquals("Sarah", reloaded.offer?.creatorName)
     assertEquals("SARAH10", reloaded.offer?.promoCode)
     assertEquals("offer_1", reloaded.offer?.billingOfferId)
@@ -63,12 +65,14 @@ class TapAppLinkStoreTest {
     val original = store.installId()
     store.tracked = true
     store.attributionId = "attr_123"
+    store.appUserId = "user_42"
     store.offer = TapAppLinkOffer("Sarah", "SARAH10", "offer_1")
 
     store.clear()
 
     assertFalse(store.tracked)
     assertNull(store.attributionId)
+    assertNull(store.appUserId)
     assertNull(store.offer)
     assertNotEquals(original, store.installId())
   }

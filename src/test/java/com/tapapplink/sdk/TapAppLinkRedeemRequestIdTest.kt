@@ -148,7 +148,7 @@ class TapAppLinkRedeemRequestIdTest {
       TapAppLinkHttpResponse(200, """{"attributionId":"a"}""")
     }
     awaitApply("X")
-    assertEquals("0.3.2", headers.get()["X-TapAppLink-SDK-Version"])
+    assertEquals("0.3.3", headers.get()["X-TapAppLink-SDK-Version"])
     assertEquals(TapAppLink.SDK_VERSION, headers.get()["X-TapAppLink-SDK-Version"])
   }
 

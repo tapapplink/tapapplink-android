@@ -32,6 +32,17 @@ internal class TapAppLinkStore(
       }
     }
 
+  /** Last app user id that successfully completed `/ingestIdentify`. */
+  var appUserId: String?
+    get() = prefs.getString(KEY_APP_USER_ID, null)?.takeIf { it.isNotBlank() }
+    set(value) {
+      if (value.isNullOrBlank()) {
+        prefs.remove(KEY_APP_USER_ID)
+      } else {
+        prefs.putString(KEY_APP_USER_ID, value)
+      }
+    }
+
   var offer: TapAppLinkOffer?
     get() {
       val creatorName = prefs.getString(KEY_OFFER_CREATOR, null) ?: return null
@@ -90,14 +101,15 @@ internal class TapAppLinkStore(
     prefs.clear()
   }
 
-  fun debugSnapshot(): String = "installId=${installId()} tracked=$tracked attributionId=$attributionId offer=$offer " +
-    "pendingRedeem=${pendingRedeemNormalizedCode()}/${pendingRedeemRequestId()}"
+  fun debugSnapshot(): String = "installId=${installId()} tracked=$tracked attributionId=$attributionId " +
+    "appUserId=$appUserId offer=$offer pendingRedeem=${pendingRedeemNormalizedCode()}/${pendingRedeemRequestId()}"
 
   companion object {
     internal const val PREFS_NAME = "tapapplink_sdk"
     private const val KEY_INSTALL_ID = "install_id"
     private const val KEY_TRACKED = "tracked"
     private const val KEY_ATTRIBUTION_ID = "attribution_id"
+    private const val KEY_APP_USER_ID = "app_user_id"
     private const val KEY_OFFER_CREATOR = "offer_creator_name"
     private const val KEY_OFFER_PROMO = "offer_promo_code"
     private const val KEY_OFFER_BILLING = "offer_billing_offer_id"

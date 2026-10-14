@@ -28,20 +28,63 @@ data class TapAppLinkOffer(
   val billingOfferId: String?,
 )
 
+/**
+ * Success body from `/redeemCode`. New fields from the server are optional so
+ * older clients keep type-checking when parsing the JSONObject result.
+ */
+data class TapAppLinkRedeemResult(
+  val attributionId: String? = null,
+  val alreadyAttributed: Boolean? = null,
+  /** True when the submitted code matches the attributed creator offer. */
+  val codeMatches: Boolean? = null,
+  val offer: Offer? = null,
+) {
+  data class Offer(
+    val creatorName: String? = null,
+    val promoCode: String? = null,
+    val billingOfferId: String? = null,
+  )
+
+  companion object {
+    fun from(json: JSONObject): TapAppLinkRedeemResult {
+      val offerJson = json.optJSONObject("offer")
+      return TapAppLinkRedeemResult(
+        attributionId = json.optString("attributionId").takeIf { it.isNotBlank() },
+        alreadyAttributed = if (json.has("alreadyAttributed")) json.optBoolean("alreadyAttributed") else null,
+        codeMatches = if (json.has("codeMatches")) json.optBoolean("codeMatches") else null,
+        offer = offerJson?.let { offer ->
+          Offer(
+            creatorName = offer.optString("creatorName").takeIf { it.isNotBlank() },
+            promoCode = offer.optString("promoCode").takeIf { it.isNotBlank() },
+            billingOfferId = offer.optString("billingOfferId").takeIf { it.isNotBlank() },
+          )
+        },
+      )
+    }
+  }
+}
+
 object TapAppLink {
   private const val TAG = "TapAppLink"
 
   /** Sent on every request as `X-TapAppLink-SDK-Version`. */
-  const val SDK_VERSION = "0.3.2"
+  const val SDK_VERSION = "0.3.3"
 
   private var config: TapAppLinkConfig? = null
   private var store: TapAppLinkStore? = null
   private var lastAppUserId: String? = null
+
+  /** Last app user id that successfully completed `/ingestIdentify` (persisted). */
+  private var identifiedAppUserId: String? = null
   private var referrerReader: ReferrerReader = PlayInstallReferrerReader()
   private var httpClient: TapAppLinkHttpClient = DefaultTapAppLinkHttpClient
   private var memoryPendingRedeemCode: String? = null
   private var memoryPendingRedeemRequestId: String? = null
   private val io = Executors.newSingleThreadExecutor()
+
+  /** Coalesce concurrent identical `setAppUserId` calls into one POST. */
+  private val identifyLock = Any()
+  private val identifyInFlight = mutableMapOf<String, MutableList<(JSONObject) -> Unit>>()
 
   @JvmStatic
   fun configure(next: TapAppLinkConfig) {
@@ -100,11 +143,44 @@ object TapAppLink {
   @JvmStatic
   fun setAppUserId(appUserId: String, callback: (JSONObject) -> Unit) {
     lastAppUserId = appUserId
+
+    if (identifiedAppUserId == appUserId) {
+      val skipped = skippedIdentifyResult(appUserId)
+      debugLog("setAppUserId skipped; already identified $skipped")
+      callback(skipped)
+      return
+    }
+
+    val shouldPost: Boolean
+    synchronized(identifyLock) {
+      val waiters = identifyInFlight[appUserId]
+      if (waiters != null) {
+        waiters.add(callback)
+        debugLog("setAppUserId coalesced with in-flight identify appUserId=$appUserId")
+        shouldPost = false
+      } else {
+        identifyInFlight[appUserId] = mutableListOf(callback)
+        shouldPost = true
+      }
+    }
+    if (!shouldPost) return
+
     io.execute {
       try {
-        callback(identify(appUserId))
+        if (identifiedAppUserId == appUserId) {
+          completeIdentify(appUserId, skippedIdentifyResult(appUserId))
+          return@execute
+        }
+        val result = identify(appUserId)
+        identifiedAppUserId = appUserId
+        store?.appUserId = appUserId
+        completeIdentify(appUserId, result)
       } catch (error: Exception) {
         debugLog("setAppUserId failed: ${error.message}")
+        // Failed identify is not persisted; drop waiters so a retry can post again.
+        synchronized(identifyLock) {
+          identifyInFlight.remove(appUserId)
+        }
       }
     }
   }
@@ -113,8 +189,9 @@ object TapAppLink {
    * Redeems a discount code via `/redeemCode`.
    *
    * On success, [callback] receives [Result.success] with the JSON body
-   * (including `alreadyAttributed` when the install was already linked).
-   * On failure, [callback] receives [Result.failure] with a
+   * (including optional `alreadyAttributed`, `codeMatches`, and `offer` with
+   * optional `creatorName`). Parse with [TapAppLinkRedeemResult.from] for a
+   * typed view. On failure, [callback] receives [Result.failure] with a
    * [TapAppLinkRedeemException] case.
    *
    * Signature note: the callback changed from `(JSONObject) -> Unit` in 0.3.0
@@ -190,8 +267,12 @@ object TapAppLink {
   @JvmOverloads
   fun resetForTesting(context: Context? = null) {
     lastAppUserId = null
+    identifiedAppUserId = null
     memoryPendingRedeemCode = null
     memoryPendingRedeemRequestId = null
+    synchronized(identifyLock) {
+      identifyInFlight.clear()
+    }
     if (context != null) {
       ensureStore(context).clear()
     } else {
@@ -208,6 +289,7 @@ object TapAppLink {
 
   internal fun setStoreForTesting(next: TapAppLinkStore?) {
     store = next
+    hydrateFromStore(next)
   }
 
   internal fun setHttpClientForTesting(client: TapAppLinkHttpClient) {
@@ -237,7 +319,31 @@ object TapAppLink {
   private fun ensureStore(context: Context): TapAppLinkStore {
     val existing = store
     if (existing != null) return existing
-    return TapAppLinkStore.from(context).also { store = it }
+    return TapAppLinkStore.from(context).also {
+      store = it
+      hydrateFromStore(it)
+    }
+  }
+
+  private fun hydrateFromStore(persisted: TapAppLinkStore?) {
+    if (persisted == null) return
+    identifiedAppUserId = persisted.appUserId
+    persisted.appUserId?.let { lastAppUserId = it }
+  }
+
+  private fun skippedIdentifyResult(appUserId: String): JSONObject {
+    val result = JSONObject()
+      .put("skipped", true)
+      .put("appUserId", appUserId)
+    store?.attributionId?.let { result.put("attributionId", it) }
+    return result
+  }
+
+  private fun completeIdentify(appUserId: String, result: JSONObject) {
+    val waiters = synchronized(identifyLock) {
+      identifyInFlight.remove(appUserId).orEmpty().toList()
+    }
+    waiters.forEach { it(result) }
   }
 
   private fun skippedResult(persisted: TapAppLinkStore): JSONObject {
@@ -273,7 +379,7 @@ object TapAppLink {
     val cfg = requireConfig()
     val body = JSONObject().put("appUserId", appUserId)
     store?.attributionId?.let { body.put("attributionId", it) }
-    debugLog("ingestIdentify attributionId=${store?.attributionId}")
+    debugLog("ingestIdentify appUserId=$appUserId attributionId=${store?.attributionId}")
     return post(cfg, "/ingestIdentify", body)
   }
 
