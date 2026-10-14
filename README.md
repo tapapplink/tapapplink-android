@@ -16,10 +16,10 @@ dependencyResolutionManagement {
 }
 ```
 
-Then in the app module (0.3.2 or later):
+Then in the app module (0.3.3 or later):
 
 ```kotlin
-implementation("com.github.tapapplink:tapapplink-android:0.3.2")
+implementation("com.github.tapapplink:tapapplink-android:0.3.3")
 ```
 
 Upgrading from 0.3.0? 0.3.1 changed `applyCode` on Android. See the [changelog](CHANGELOG.md).
@@ -50,7 +50,7 @@ TapAppLink.setAppUserId(Purchases.sharedInstance.appUserID) { }
 
 ### Apply a discount code
 
-Show success only on a real success result. Map each outcome to UI like this. On a network or timeout error only (never unknown, inactive or wrongEnvironment), retry `applyCode` once automatically with the same code. From 0.3.2 that retry is safe because the SDK reuses its request ID, so the server won't count the install twice.
+Show success only on a real success result. Map each outcome to UI like this. On a network or timeout error only (never unknown, inactive or wrongEnvironment), retry `applyCode` once automatically with the same code. From 0.3.2 that retry is safe because the SDK reuses its request ID, so the server won't count the install twice. From 0.3.3, success results may include optional `codeMatches` and `offer.creatorName` (see `TapAppLinkRedeemResult`).
 
 ```kotlin
 fun redeem(code: String, isRetry: Boolean = false) {
@@ -122,7 +122,7 @@ redeem(code)
 `TapAppLinkRedeemException.WrongEnvironment.DEVELOPER_WARNING` is exactly:
 `This code belongs to the other environment (Sandbox or Production). Check your API key.`
 
-`trackInstall()` is safe on every launch. It stores an `installId`, the tracked flag, attribution id and offer in SharedPreferences, and only posts `/ingestInstall` once per install. `setAppUserId` / identify send the stored `attributionId`.
+`trackInstall()` is safe on every launch. It stores an `installId`, the tracked flag, attribution id and offer in SharedPreferences, and only posts `/ingestInstall` once per install. `setAppUserId` sends that stored `attributionId` after hydrate, posts `/ingestIdentify` only when the app user id changes, and coalesces concurrent identical calls.
 
 Call `resetForTesting(context)` in debug builds before repeating a match test on the same device.
 
@@ -132,7 +132,7 @@ Purchases are attributed through billing webhooks. Leave out a client `trackPurc
 
 GitHub Actions runs on every pull request and push to `main`: Gradle assemble, unit tests, ktlint, and Android Lint.
 
-Pushing a semver tag (`0.3.2`, `v0.3.2`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
+Pushing a semver tag (`0.3.3`, `v0.3.3`, or a prerelease suffix) runs the same checks, creates a GitHub Release, and requests a JitPack build for that tag. `jitpack.yml` pins OpenJDK 17 for JitPack.
 
 ### Local checks
 
@@ -142,7 +142,7 @@ Pushing a semver tag (`0.3.2`, `v0.3.2`, or a prerelease suffix) runs the same c
 
 ## Publishing
 
-**JitPack (current):** consumers depend on `com.github.tapapplink:tapapplink-android:0.3.2` (0.3.2 or later). Tag a release; CI triggers JitPack. No extra secrets are required for that path.
+**JitPack (current):** consumers depend on `com.github.tapapplink:tapapplink-android:0.3.3` (0.3.3 or later). Tag a release; CI triggers JitPack. No extra secrets are required for that path.
 
 **Maven Central (optional, disabled):** the release workflow includes a `maven-central` job left behind `if: false` until a repository admin finishes the one-time setup below. Prefer JitPack until you need Central discovery or a non-`com.github` coordinate.
 

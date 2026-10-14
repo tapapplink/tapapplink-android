@@ -69,6 +69,21 @@ class TapAppLinkTest {
   }
 
   @Test
+  fun redeemResultExposesOptionalCodeMatchesAndCreatorName() {
+    val typed = TapAppLinkRedeemResult.from(
+      org.json.JSONObject(
+        """{"attributionId":"attr_1","alreadyAttributed":true,"codeMatches":true,"offer":{"creatorName":"Ada","promoCode":"ADA10","billingOfferId":"b1"}}""",
+      ),
+    )
+    assertEquals("attr_1", typed.attributionId)
+    assertEquals(true, typed.alreadyAttributed)
+    assertEquals(true, typed.codeMatches)
+    assertEquals("Ada", typed.offer?.creatorName)
+    assertEquals("ADA10", typed.offer?.promoCode)
+    assertEquals("b1", typed.offer?.billingOfferId)
+  }
+
+  @Test
   fun redactKeyHidesMiddleOfApiKey() {
     val redacted = TapAppLink.redactKey("etk_live_abcdefghijklmnop")
     assertTrue(redacted.startsWith("etk_"))

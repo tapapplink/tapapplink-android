@@ -32,7 +32,7 @@ class TapAppLinkApplyCodeTest {
       seenHeaders.set(headers)
       TapAppLinkHttpResponse(
         200,
-        """{"attributionId":"attr_9","alreadyAttributed":false,"offer":{"creatorName":"Sarah","promoCode":"SARAH10","billingOfferId":"offer_1"}}""",
+        """{"attributionId":"attr_9","alreadyAttributed":false,"codeMatches":true,"offer":{"creatorName":"Sarah","promoCode":"SARAH10","billingOfferId":"offer_1"}}""",
       )
     }
 
@@ -41,9 +41,15 @@ class TapAppLinkApplyCodeTest {
     val body = result.getOrThrow()
     assertEquals("attr_9", body.getString("attributionId"))
     assertFalse(body.getBoolean("alreadyAttributed"))
+    assertTrue(body.getBoolean("codeMatches"))
     assertEquals("attr_9", TapAppLink.getAttributionId())
     assertEquals("Sarah", TapAppLink.getOffer()?.creatorName)
-    assertEquals("0.3.2", seenHeaders.get()["X-TapAppLink-SDK-Version"])
+    val typed = TapAppLinkRedeemResult.from(body)
+    assertEquals("attr_9", typed.attributionId)
+    assertEquals(false, typed.alreadyAttributed)
+    assertEquals(true, typed.codeMatches)
+    assertEquals("Sarah", typed.offer?.creatorName)
+    assertEquals("0.3.3", seenHeaders.get()["X-TapAppLink-SDK-Version"])
     assertEquals(TapAppLink.SDK_VERSION, seenHeaders.get()["X-TapAppLink-SDK-Version"])
   }
 
@@ -52,13 +58,19 @@ class TapAppLinkApplyCodeTest {
     TapAppLink.setHttpClientForTesting { _, _, _ ->
       TapAppLinkHttpResponse(
         200,
-        """{"attributionId":"attr_1","alreadyAttributed":true,"offer":{"creatorName":"Alex","promoCode":null,"billingOfferId":"b1"}}""",
+        """{"attributionId":"attr_1","alreadyAttributed":true,"codeMatches":false,"offer":{"creatorName":"Alex","promoCode":null,"billingOfferId":"b1"}}""",
       )
     }
 
     val result = awaitApply("ALEX")
     assertTrue(result.isSuccess)
-    assertTrue(result.getOrThrow().getBoolean("alreadyAttributed"))
+    val body = result.getOrThrow()
+    assertTrue(body.getBoolean("alreadyAttributed"))
+    assertFalse(body.getBoolean("codeMatches"))
+    val typed = TapAppLinkRedeemResult.from(body)
+    assertEquals(true, typed.alreadyAttributed)
+    assertEquals(false, typed.codeMatches)
+    assertEquals("Alex", typed.offer?.creatorName)
   }
 
   @Test
